@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coordinator! Learn Coordinates</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'VT323', monospace;
+            background-color: #050505;
+            background-image: linear-gradient(rgba(0, 255, 0, 0.05) 1px, transparent 1px),
+                              linear-gradient(90deg, rgba(0, 255, 0, 0.05) 1px, transparent 1px);
+            background-size: 20px 20px;
+            color: #00ff00;
+        }
+        #game-canvas {
+            touch-action: none;
+            border: 4px solid #00ff00;
+            background-color: #001100;
+            box-shadow: inset 0 0 20px rgba(0,255,0,0.3), 0 0 15px rgba(0,255,0,0.2);
+            border-radius: 12px;
+        }
+        .target-highlight {
+            background-color: rgba(0, 255, 128, 0.25);
+            border: 2px solid #00ff88;
+            box-shadow: 0 0 10px rgba(0, 255, 128, 0.4);
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center p-4">
+
+    <div class="max-w-3xl w-full bg-black p-6 border-4 border-green-500 relative rounded-2xl" style="box-shadow: 0 10px 30px rgba(0,255,0,0.2);">
+        
+        <!-- Header -->
+        <div class="text-center mb-4 border-b-2 border-green-800 pb-2">
+            <h1 class="text-5xl font-bold text-green-400 mb-2 uppercase tracking-widest" style="text-shadow: 0 0 10px #00ff00;">
+                Coordinator
+            </h1>
+            <p class="text-green-600 text-xl">Explore the grid and find the hidden targets!</p>
+        </div>
+
+        <!-- Game Settings -->
+        <div class="flex flex-wrap justify-center md:justify-evenly items-center gap-4 md:gap-8 text-green-400 text-xl mb-6 bg-green-900/20 p-4 rounded-xl border border-green-800/50 shadow-inner mx-2">
+            <label class="flex items-center gap-3 uppercase font-bold tracking-wide">
+                Grid:
+                <select id="grid-max-select" class="bg-black text-green-300 border-2 border-green-500 rounded-md px-2 py-1 outline-none focus:border-green-300 cursor-pointer transition-colors hover:bg-green-900">
+                    <option value="5" selected>± 5</option>
+                    <option value="10">± 10</option>
+                    <option value="20">± 20</option>
+                    <option value="50">± 50</option>
+                    <option value="100">± 100</option>
+                </select>
+            </label>
+            <label class="flex items-center gap-3 uppercase font-bold tracking-wide">
+                Sequence:
+                <select id="path-length-select" class="bg-black text-green-300 border-2 border-green-500 rounded-md px-2 py-1 outline-none focus:border-green-300 cursor-pointer transition-colors hover:bg-green-900">
+                    <option value="3">3 Points</option>
+                    <option value="5" selected>5 Points</option>
+                    <option value="8">8 Points</option>
+                </select>
+            </label>
+            <label class="flex items-center gap-3 uppercase font-bold tracking-wide cursor-pointer hover:text-green-300 transition-colors">
+                Hint:
+                <input type="checkbox" id="quadrant-hint-toggle" class="w-6 h-6 accent-green-500 cursor-pointer">
+            </label>
+        </div>
+
+        <!-- Level & Instructions -->
+        <div class="border-2 border-green-600 bg-gray-900 p-4 mb-6 text-center rounded-xl shadow-inner">
+            <h2 id="level-title" class="text-2xl text-green-300 uppercase tracking-widest mb-2 font-bold">LEVEL 1</h2>
+            
+            <!-- Display the full sequence of coordinates -->
+            <div id="path-display" class="text-2xl font-bold flex flex-wrap justify-center gap-2 items-center min-h-[40px] mb-2">
+                <!-- Populated by JS -->
+            </div>
+            
+            <p id="feedback-message" class="text-green-500 text-xl mt-3 h-6 uppercase transition-all duration-300"></p>
+        </div>
+
+        <!-- Canvas Container -->
+        <div class="relative w-full aspect-square max-w-lg mx-auto overflow-hidden rounded-xl p-1 bg-green-900 shadow-[0_0_15px_rgba(0,255,0,0.3)]">
+            <canvas id="game-canvas" width="600" height="600" class="w-full h-full cursor-crosshair block rounded-lg"></canvas>
+        </div>
+
+        <!-- Controls -->
+        <div class="mt-6 flex justify-between items-center px-4">
+            <div class="text-green-600 text-2xl uppercase font-bold tracking-wide">
+                Targets Found: <span id="progress-text" class="text-green-400">0/3</span>
+            </div>
+            <button id="next-btn" class="hidden bg-green-500 hover:bg-green-400 text-black font-bold py-3 px-8 rounded-lg border-b-4 border-green-700 hover:border-green-500 uppercase text-xl transition-all shadow-[0_4px_10px_rgba(0,255,0,0.4)]">
+                NEXT LEVEL ➔
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('game-canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // UI Elements
+        const pathDisplay = document.getElementById('path-display');
+        const feedbackMsg = document.getElementById('feedback-message');
+        const levelTitle = document.getElementById('level-title');
+        const progressText = document.getElementById('progress-text');
+        const nextBtn = document.getElementById('next-btn');
+        const quadrantHintToggle = document.getElementById('quadrant-hint-toggle');
+
+        // New Setting Controls
+        const gridMaxSelect = document.getElementById('grid-max-select');
+        const pathLengthSelect = document.getElementById('path-length-select');
+
+        // Grid configuration Engine
+        let gridMax = 5; 
+        let gridStep = 1;
+        const logicSize = canvas.width;
+        const centerX = logicSize / 2;
+        const centerY = logicSize / 2;
+        let pixelsPerUnit = 0;
+
+        function updateGridMath() {
+            // Calculate step size based on max to keep visible grid lines manageable for kids
+            if (gridMax <= 10) gridStep = 1;
+            else if (gridMax <= 20) gridStep = 2;
+            else if (gridMax <= 50) gridStep = 5;
+            else gridStep = 10;
+
+            const margin = 40; // Pixel padding around edges so dots aren't clipped
+            const drawRadius = (logicSize / 2) - margin;
+            pixelsPerUnit = drawRadius / gridMax;
+        }
+
+        // Game State
+        let currentLevel = null;
+        let currentLevelIndex = 1;
+        let currentPointIndex = 0;
+        let mouseGridPos = null; // {x, y}
+        let clickedWrongPos = null; // {x, y, time}
+        let levelComplete = false;
+        let defeatAnimations = []; // stores knockout poof animations {x, y, startTime, color}
+
+        // Ghost enemy color palette (Pac-Man inspired retro tones)
+        const GHOST_COLORS = [
+            '#ff3b30', // Blinky Red
+            '#ff9500', // Clyde Orange
+            '#ff2d55', // Pinky
+            '#00d8d6', // Inky Cyan
+            '#a55eea', // Purple
+            '#ffd32a'  // Yellow
+        ];
+        
+        // Audio Context (Lazy initialized)
+        let audioCtx = null;
+
+        // Convert Grid coordinate to Canvas Pixel coordinate
+        function getPixelX(gridX) {
+            return centerX + (gridX * pixelsPerUnit);
+        }
+
+        function getPixelY(gridY) {
+            return centerY - (gridY * pixelsPerUnit); // Y is inverted in math vs canvas
+        }
+
+        // Convert Canvas Pixel coordinate to raw Grid coordinate
+        function getRawGridX(pixelX) {
+            return (pixelX - centerX) / pixelsPerUnit;
+        }
+
+        function getRawGridY(pixelY) {
+            return (centerY - pixelY) / pixelsPerUnit; 
+        }
+
+        // Snap to nearest valid grid intersection
+        function snapToGrid(rawVal) {
+            return Math.round(rawVal / gridStep) * gridStep;
+        }
+
+        // Engine for randomly generating a path
+        function generateRandomPath() {
+            const length = parseInt(pathLengthSelect.value);
+            const points = [];
+            const possibleVals = [];
+            
+            // Build valid snapping points based on the current step
+            for(let i = -gridMax; i <= gridMax; i += gridStep) {
+                possibleVals.push(i);
+            }
+            
+            for(let i = 0; i < length; i++) {
+                let px, py;
+                let isDuplicate;
+                let attempts = 0;
+                do {
+                    px = possibleVals[Math.floor(Math.random() * possibleVals.length)];
+                    py = possibleVals[Math.floor(Math.random() * possibleVals.length)];
+                    
+                    // Prevent consecutive duplicates so the line actually moves
+                    isDuplicate = i > 0 && points[i-1].x === px && points[i-1].y === py;
+                    attempts++;
+                } while(isDuplicate && attempts < 10);
+                
+                points.push({x: px, y: py});
+            }
+            
+            return {
+                points: points
+            };
+        }
+
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        function playTone(frequency, type, duration, vol=0.1) {
+            if (!audioCtx) return;
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            
+            oscillator.type = type;
+            oscillator.frequency.setValueAtTime(frequency, audioCtx.currentTime);
+            
+            gainNode.gain.setValueAtTime(vol, audioCtx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            
+            oscillator.start();
+            oscillator.stop(audioCtx.currentTime + duration);
+        }
+
+        function playSuccessSound() {
+            initAudio();
+            playTone(440, 'sine', 0.1); // A4
+            setTimeout(() => playTone(554.37, 'sine', 0.2), 100); // C#5
+            setTimeout(() => playTone(659.25, 'sine', 0.3), 200); // E5
+        }
+
+        function playErrorSound() {
+            initAudio();
+            playTone(180, 'sawtooth', 0.25, 0.08);
+            setTimeout(() => playTone(120, 'sawtooth', 0.25, 0.08), 80);
+        }
+
+        function playZapSound() {
+            initAudio();
+            playTone(880, 'square', 0.08, 0.08);
+            setTimeout(() => playTone(1200, 'square', 0.12, 0.08), 50);
+        }
+
+        function playWinSound() {
+            initAudio();
+            const notes = [523.25, 659.25, 783.99, 1046.50]; // C, E, G, C
+            notes.forEach((freq, i) => {
+                setTimeout(() => playTone(freq, 'square', 0.2, 0.05), i * 150);
+            });
+        }
+
+        function drawGrid() {
+            ctx.clearRect(0, 0, logicSize, logicSize);
+
+            // Draw Background Grid Lines
+            ctx.lineWidth = 1;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.font = 'bold 16px system-ui, -apple-system, sans-serif';
+
+            for (let i = -gridMax; i <= gridMax; i += gridStep) {
+                const isAxis = (i === 0);
+                
+                // Vertical lines (X axis markers)
+                ctx.beginPath();
+                ctx.strokeStyle = isAxis ? '#00ff00' : '#006600'; 
+                ctx.lineWidth = isAxis ? 2 : 1.5;
+                ctx.moveTo(getPixelX(i), getPixelY(-gridMax));
+                ctx.lineTo(getPixelX(i), getPixelY(gridMax));
+                ctx.stroke();
+
+                // Horizontal lines (Y axis markers)
+                ctx.beginPath();
+                ctx.strokeStyle = isAxis ? '#00ff00' : '#006600';
+                ctx.lineWidth = isAxis ? 2 : 1.5;
+                ctx.moveTo(getPixelX(-gridMax), getPixelY(i));
+                ctx.lineTo(getPixelX(gridMax), getPixelY(i));
+                ctx.stroke();
+
+                // Draw numbers on axes
+                ctx.fillStyle = '#55ff55'; 
+                if (i !== 0) {
+                    ctx.fillText(i.toString(), getPixelX(i), getPixelY(0) + 15);
+                    ctx.fillText(i.toString(), getPixelX(0) - 20, getPixelY(i));
+                }
+            }
+            
+            // Draw Center 0
+            ctx.fillText("0", getPixelX(0) - 15, getPixelY(0) + 15);
+            
+            // Draw Axis Labels
+            ctx.font = 'bold 20px system-ui, -apple-system, sans-serif';
+            ctx.fillStyle = '#00ff00';
+            ctx.fillText("X", getPixelX(gridMax) + 20, getPixelY(0));
+            ctx.fillText("Y", getPixelX(0), getPixelY(gridMax) - 20);
+        }
+
+        // Draws subtle quadrant highlight for target coordinate if hint is toggled on
+        function drawQuadrantHint() {
+            if (!quadrantHintToggle.checked || !currentLevel || levelComplete) return;
+            const target = currentLevel.points[currentPointIndex];
+            if (!target) return;
+
+            let minX = 0, maxX = 0, minY = 0, maxY = 0;
+            let quadrantLabel = "";
+
+            if (target.x >= 0 && target.y >= 0) {
+                // Quadrant I (+X, +Y)
+                minX = 0; maxX = gridMax; minY = 0; maxY = gridMax;
+                quadrantLabel = "QUADRANT 1 (+X, +Y)";
+            } else if (target.x < 0 && target.y >= 0) {
+                // Quadrant II (-X, +Y)
+                minX = -gridMax; maxX = 0; minY = 0; maxY = gridMax;
+                quadrantLabel = "QUADRANT 2 (-X, +Y)";
+            } else if (target.x < 0 && target.y < 0) {
+                // Quadrant III (-X, -Y)
+                minX = -gridMax; maxX = 0; minY = -gridMax; maxY = 0;
+                quadrantLabel = "QUADRANT 3 (-X, -Y)";
+            } else {
+                // Quadrant IV (+X, -Y)
+                minX = 0; maxX = gridMax; minY = -gridMax; maxY = 0;
+                quadrantLabel = "QUADRANT 4 (+X, -Y)";
+            }
+
+            const pMinX = getPixelX(minX);
+            const pMaxX = getPixelX(maxX);
+            const pMinY = getPixelY(maxY); // Y axis inverted in canvas
+            const pMaxY = getPixelY(minY);
+
+            const rectX = Math.min(pMinX, pMaxX);
+            const rectY = Math.min(pMinY, pMaxY);
+            const rectW = Math.abs(pMaxX - pMinX);
+            const rectH = Math.abs(pMaxY - pMinY);
+
+            ctx.save();
+            ctx.fillStyle = 'rgba(0, 255, 128, 0.08)';
+            ctx.fillRect(rectX, rectY, rectW, rectH);
+
+            ctx.strokeStyle = 'rgba(0, 255, 128, 0.35)';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([6, 6]);
+            ctx.strokeRect(rectX, rectY, rectW, rectH);
+            ctx.setLineDash([]);
+
+            // Quadrant watermarked label
+            ctx.font = 'bold 18px system-ui, -apple-system, sans-serif';
+            ctx.fillStyle = 'rgba(0, 255, 128, 0.55)';
+            ctx.textAlign = 'center';
+            ctx.fillText(quadrantLabel, rectX + rectW / 2, rectY + 24);
+            ctx.restore();
+        }
+
+        function drawRetroGhost(targetCtx, x, y, size, color, isDefeated = false) {
+            targetCtx.save();
+            targetCtx.translate(x, y);
+
+            if (isDefeated) {
+                targetCtx.globalAlpha = 0.4;
+            }
+
+            const r = size / 2;
+            targetCtx.fillStyle = color;
+
+            // Ghost dome top & body
+            targetCtx.beginPath();
+            targetCtx.arc(0, -r * 0.2, r * 0.8, Math.PI, 0, false);
+            targetCtx.lineTo(r * 0.8, r * 0.7);
+
+            // Wavy Pac-Man skirt feet
+            const waveCount = 3;
+            const waveWidth = (r * 1.6) / waveCount;
+            for (let i = 0; i < waveCount; i++) {
+                const wx = r * 0.8 - i * waveWidth;
+                targetCtx.lineTo(wx - waveWidth * 0.5, r * 0.4);
+                targetCtx.lineTo(wx - waveWidth, r * 0.7);
+            }
+            targetCtx.closePath();
+            targetCtx.fill();
+
+            // Eyes
+            const eyeOffset = r * 0.35;
+            const eyeY = -r * 0.2;
+            const eyeRadius = r * 0.24;
+            const pupilRadius = r * 0.12;
+
+            targetCtx.fillStyle = '#ffffff';
+            targetCtx.beginPath();
+            targetCtx.arc(-eyeOffset, eyeY, eyeRadius, 0, Math.PI * 2);
+            targetCtx.arc(eyeOffset, eyeY, eyeRadius, 0, Math.PI * 2);
+            targetCtx.fill();
+
+            // Pupils (look towards center or right)
+            targetCtx.fillStyle = isDefeated ? '#ff0000' : '#1e272c';
+            targetCtx.beginPath();
+            targetCtx.arc(-eyeOffset + 2, eyeY, pupilRadius, 0, Math.PI * 2);
+            targetCtx.arc(eyeOffset + 2, eyeY, pupilRadius, 0, Math.PI * 2);
+            targetCtx.fill();
+
+            targetCtx.restore();
+        }
+
+        function drawGame() {
+            drawGrid();
+            drawQuadrantHint();
+            
+            const level = currentLevel;
+            if (!level) return;
+            
+            // Draw completed path segments
+            if (currentPointIndex > 0) {
+                ctx.beginPath();
+                ctx.strokeStyle = '#00ffff'; // Neon cyan line
+                ctx.lineWidth = 4;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                
+                ctx.moveTo(getPixelX(level.points[0].x), getPixelY(level.points[0].y));
+                for (let i = 1; i < currentPointIndex; i++) {
+                    ctx.lineTo(getPixelX(level.points[i].x), getPixelY(level.points[i].y));
+                }
+                
+                // If level complete, close path and fill
+                if (levelComplete && level.points[0].x === level.points[level.points.length-1].x && level.points[0].y === level.points[level.points.length-1].y) {
+                    ctx.fillStyle = 'rgba(0, 255, 255, 0.2)'; 
+                    ctx.fill();
+                }
+                
+                ctx.stroke();
+
+                // Draw captured nodes
+                for (let i = 0; i < currentPointIndex; i++) {
+                    const px = getPixelX(level.points[i].x);
+                    const py = getPixelY(level.points[i].y);
+                    
+                    ctx.fillStyle = '#00ffff';
+                    ctx.beginPath();
+                    ctx.arc(px, py, 6, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+
+            // Draw only revealed/defeated bots at solved nodes (enemies are hidden until shot!)
+            level.points.forEach((pt, index) => {
+                const px = getPixelX(pt.x);
+                const py = getPixelY(pt.y);
+                const botColor = GHOST_COLORS[index % GHOST_COLORS.length];
+                const ghostSize = Math.max(16, Math.min(26, pixelsPerUnit * 1.3));
+
+                if (index < currentPointIndex) {
+                    // Defeated bot revealed after successful coordinate hit
+                    drawRetroGhost(ctx, px, py, ghostSize, botColor, true);
+
+                    // Cleared node badge
+                    ctx.strokeStyle = '#00ffff';
+                    ctx.lineWidth = 1.5;
+                    ctx.strokeRect(px - ghostSize * 0.55, py - ghostSize * 0.55, ghostSize * 1.1, ghostSize * 1.1);
+                }
+            });
+
+            // Draw Knockout / Poof animations
+            const now = Date.now();
+            defeatAnimations = defeatAnimations.filter(anim => {
+                const age = now - anim.startTime;
+                if (age > 600) return false;
+
+                const progress = age / 600;
+                const px = getPixelX(anim.x);
+                const py = getPixelY(anim.y);
+                const ghostSize = Math.max(20, Math.min(32, pixelsPerUnit * 1.5));
+
+                ctx.save();
+                // Pop-in defeated bot zooming and fading out
+                ctx.globalAlpha = 1 - progress * 0.7;
+                drawRetroGhost(ctx, px, py - (progress * 10), ghostSize * (1 + progress * 0.3), anim.color);
+
+                // Expanding knockout ring
+                ctx.strokeStyle = anim.color;
+                ctx.lineWidth = 3 * (1 - progress);
+                ctx.beginPath();
+                ctx.arc(px, py, 10 + progress * 28, 0, Math.PI * 2);
+                ctx.stroke();
+
+                // Knockout text popping up
+                ctx.fillStyle = '#ffff00';
+                ctx.font = 'bold 18px system-ui, -apple-system, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText("GOT IT!", px, py - 20 - (progress * 15));
+                ctx.restore();
+
+                return true;
+            });
+
+            // Draw level complete message in center
+            if (levelComplete) {
+                ctx.font = 'bold 50px system-ui, -apple-system, sans-serif';
+                ctx.fillStyle = '#00ff00';
+                ctx.shadowColor = '#00ff00';
+                ctx.shadowBlur = 10;
+                ctx.fillText("LEVEL COMPLETE!", centerX, centerY);
+                ctx.shadowBlur = 0; // reset
+            }
+
+            // Draw Hover effect (Ghost coordinate)
+            if (mouseGridPos && !levelComplete) {
+                // Ensure hover is within visible bounds
+                if (mouseGridPos.x >= -gridMax && mouseGridPos.x <= gridMax && 
+                    mouseGridPos.y >= -gridMax && mouseGridPos.y <= gridMax) {
+                    
+                    const hx = getPixelX(mouseGridPos.x);
+                    const hy = getPixelY(mouseGridPos.y);
+
+                    // Targeting box
+                    ctx.beginPath();
+                    ctx.strokeStyle = '#00ff00';
+                    ctx.lineWidth = 2;
+                    ctx.rect(hx - 10, hy - 10, 20, 20);
+                    ctx.stroke();
+
+                    // Responsive Tooltip Position
+                    let tipW = 85; // Default width
+                    // Widen tooltip if numbers are large (e.g., 100)
+                    if (Math.abs(mouseGridPos.x) >= 100 || Math.abs(mouseGridPos.y) >= 100) tipW = 100;
+                    
+                    let tipH = 30;
+                    let tipX = hx + 15;
+                    let tipY = hy - 35;
+
+                    // Prevent cutoff on right edge
+                    if (tipX + tipW > logicSize) {
+                        tipX = hx - tipW - 15;
+                    }
+                    // Prevent cutoff on top edge
+                    if (tipY < 0) {
+                        tipY = hy + 15;
+                    }
+
+                    // Tooltip background
+                    ctx.fillStyle = '#000000';
+                    ctx.fillRect(tipX, tipY, tipW, tipH);
+                    ctx.strokeStyle = '#00ff00';
+                    ctx.strokeRect(tipX, tipY, tipW, tipH);
+
+                    // Tooltip text
+                    ctx.fillStyle = '#00ff00';
+                    ctx.font = 'bold 16px system-ui, -apple-system, sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(`(${mouseGridPos.x}, ${mouseGridPos.y})`, tipX + tipW/2, tipY + tipH/2);
+                }
+            }
+
+            // Draw Wrong Click feedback
+            if (clickedWrongPos && !levelComplete) {
+                const now = Date.now();
+                if (now - clickedWrongPos.time < 2000) { // Show for 2 seconds
+                    const wx = getPixelX(clickedWrongPos.x);
+                    const wy = getPixelY(clickedWrongPos.y);
+                    
+                    ctx.font = 'bold 18px system-ui, -apple-system, sans-serif';
+                    ctx.fillStyle = '#ff3333';
+                    ctx.fillText("Oops, missed!", wx, wy);
+                    
+                    // Small floating text
+                    ctx.font = 'bold 14px system-ui, -apple-system, sans-serif';
+                    ctx.fillText(`Clicked (${clickedWrongPos.x}, ${clickedWrongPos.y})`, wx, wy - 22);
+                } else {
+                    clickedWrongPos = null; // Expire
+                }
+            }
+        }
+
+        function updateUI() {
+            const level = currentLevel;
+            levelTitle.innerText = `LEVEL ${currentLevelIndex}`;
+            
+            // Build path display sequence
+            pathDisplay.innerHTML = ''; 
+            
+            level.points.forEach((pt, index) => {
+                const span = document.createElement('span');
+                span.innerText = `(${pt.x}, ${pt.y})`;
+                
+                if (index < currentPointIndex) {
+                    // Found nodes / defeated bot
+                    span.className = "text-green-800 line-through px-2 py-1";
+                } else if (index === currentPointIndex && !levelComplete) {
+                    // Current active target: solid highlight without flashing
+                    span.className = "text-green-300 font-bold px-3 py-1 target-highlight";
+                } else {
+                    // Future targets
+                    span.className = "text-green-600 px-2 py-1";
+                }
+                
+                pathDisplay.appendChild(span);
+                
+                // Add arrow between nodes
+                if (index < level.points.length - 1) {
+                    const arrow = document.createElement('span');
+                    arrow.innerText = "➔";
+                    arrow.className = "text-green-800 text-lg px-1";
+                    pathDisplay.appendChild(arrow);
+                }
+            });
+
+            if (levelComplete) {
+                feedbackMsg.innerText = "AMAZING! ALL TARGETS FOUND!";
+                feedbackMsg.className = "text-green-400 text-xl mt-3 h-6 uppercase font-bold";
+                progressText.innerText = `${level.points.length}/${level.points.length}`;
+                nextBtn.classList.remove('hidden');
+            } else {
+                if (currentPointIndex === 0) {
+                    feedbackMsg.innerText = "Let's find the first coordinate on the map!";
+                } else {
+                    feedbackMsg.innerText = "Got one! Where is the next coordinate?";
+                }
+                feedbackMsg.className = "text-green-500 text-xl mt-3 h-6 uppercase";
+                progressText.innerText = `${currentPointIndex}/${level.points.length}`;
+                nextBtn.classList.add('hidden');
+            }
+        }
+
+        function loadLevel() {
+            updateGridMath();
+            currentLevel = generateRandomPath();
+            currentPointIndex = 0;
+            levelComplete = false;
+            clickedWrongPos = null;
+            defeatAnimations = [];
+            updateUI();
+            drawGame();
+        }
+
+        // Handle Resizing / Coordinate scaling
+        function getMouseEventCoords(evt) {
+            const rect = canvas.getBoundingClientRect();
+            // Calculate scale in case CSS resized the canvas
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            
+            let clientX, clientY;
+            if (evt.touches && evt.touches.length > 0) {
+                clientX = evt.touches[0].clientX;
+                clientY = evt.touches[0].clientY;
+            } else {
+                clientX = evt.clientX;
+                clientY = evt.clientY;
+            }
+
+            const pixelX = (clientX - rect.left) * scaleX;
+            const pixelY = (clientY - rect.top) * scaleY;
+            
+            const rawX = getRawGridX(pixelX);
+            const rawY = getRawGridY(pixelY);
+
+            return {
+                x: snapToGrid(rawX),
+                y: snapToGrid(rawY)
+            };
+        }
+
+        function handlePointerMove(evt) {
+            evt.preventDefault(); // prevent touch scrolling
+            const pos = getMouseEventCoords(evt);
+            
+            // Only update/redraw if grid position changed to save performance
+            if (!mouseGridPos || mouseGridPos.x !== pos.x || mouseGridPos.y !== pos.y) {
+                mouseGridPos = pos;
+                drawGame();
+            }
+        }
+
+        function handlePointerDown(evt) {
+            evt.preventDefault();
+            initAudio(); // Required for web audio to work
+            if (levelComplete) return;
+
+            const pos = getMouseEventCoords(evt);
+            const level = currentLevel;
+            const target = level.points[currentPointIndex];
+
+            // Ignore clicks wildly outside the grid range
+            if (pos.x < -gridMax || pos.x > gridMax || pos.y < -gridMax || pos.y > gridMax) {
+                return;
+            }
+
+            if (pos.x === target.x && pos.y === target.y) {
+                // Correct coordinate! Add knockout effect and advance
+                defeatAnimations.push({
+                    x: target.x,
+                    y: target.y,
+                    startTime: Date.now(),
+                    color: GHOST_COLORS[currentPointIndex % GHOST_COLORS.length]
+                });
+
+                currentPointIndex++;
+                playZapSound();
+                playSuccessSound();
+                clickedWrongPos = null; // Clear any error marks
+
+                if (currentPointIndex >= level.points.length) {
+                    levelComplete = true;
+                    playWinSound();
+                    confettiEffect(); 
+                }
+                
+                updateUI();
+            } else {
+                // Wrong coordinate - gentle 'You Missed' message
+                playErrorSound();
+                clickedWrongPos = {
+                    x: pos.x,
+                    y: pos.y,
+                    time: Date.now()
+                };
+                feedbackMsg.innerText = `Try again! You clicked (${pos.x}, ${pos.y})`;
+                feedbackMsg.className = "text-red-500 text-xl mt-3 h-6 uppercase font-bold";
+            }
+            
+            drawGame();
+        }
+
+        // Mouse Events
+        canvas.addEventListener('mousemove', handlePointerMove);
+        canvas.addEventListener('mousedown', handlePointerDown);
+        canvas.addEventListener('mouseleave', () => {
+            mouseGridPos = null;
+            drawGame();
+        });
+
+        // Touch Events for mobile compatibility
+        canvas.addEventListener('touchmove', handlePointerMove, {passive: false});
+        canvas.addEventListener('touchstart', handlePointerDown, {passive: false});
+        canvas.addEventListener('touchend', () => {
+            mouseGridPos = null;
+            drawGame();
+        });
+
+        nextBtn.addEventListener('click', () => {
+            initAudio(); // Keep context alive
+            currentLevelIndex++;
+            loadLevel();
+        });
+
+        gridMaxSelect.addEventListener('change', (e) => {
+            gridMax = parseInt(e.target.value);
+            currentLevelIndex = 1;
+            loadLevel();
+        });
+
+        pathLengthSelect.addEventListener('change', () => {
+            currentLevelIndex = 1;
+            loadLevel();
+        });
+
+        quadrantHintToggle.addEventListener('change', () => {
+            drawGame();
+        });
+
+        // Animation loop for defeat effects
+        function gameLoop() {
+            drawGame();
+            requestAnimationFrame(gameLoop);
+        }
+
+        function confettiEffect() {
+            // Retro digital rain or blocks dropping
+            for(let i=0; i<20; i++) {
+                const el = document.createElement('div');
+                el.innerText = ["0", "1", "*", "+"][Math.floor(Math.random()*4)];
+                el.style.position = 'fixed';
+                el.style.color = '#00ff00';
+                el.style.left = (Math.random() * 100) + 'vw';
+                el.style.top = '-50px';
+                el.style.fontSize = '24px';
+                el.style.fontFamily = "'VT323', monospace";
+                el.style.transition = 'top 1.5s linear, opacity 1.5s';
+                el.style.zIndex = '9999';
+                document.body.appendChild(el);
+                
+                setTimeout(() => {
+                    el.style.top = '100vh';
+                    el.style.opacity = '0';
+                }, 50);
+
+                setTimeout(() => el.remove(), 1550);
+            }
+        }
+
+        // Initialize first level
+        window.onload = () => {
+            loadLevel();
+            requestAnimationFrame(gameLoop);
+        };
+    </script>
+</body>
+</html>
